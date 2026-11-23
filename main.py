@@ -20,10 +20,12 @@ import os
 import json
 import time
 import shutil
+import asyncio
 from config import config
 from core.song import Song
 from core import ui
-from core.stream import forget_call, _SWITCHING
+from core.stream import (
+    forget_call, _SWITCHING, NOTICES, start_prefetch, cancel_prefetch, next_autoplay)
 from lang import load
 from pyrogram import enums
 from pyrogram.types import Message, CallbackQuery
@@ -121,6 +123,32 @@ async def play_stream(_, message: Message, lang):
             pass
 
 
+_BACKGROUND = set()
+
+
+def _has_video(message) -> bool:
+    """True for a video, a GIF animation or a video file."""
+    if message is None:
+        return False
+    if any(getattr(message, n, None) for n in ("video", "animation", "video_note")):
+        return True
+    document = getattr(message, "document", None)
+    return str(getattr(document, "mime_type", "") or "").startswith("video/")
+
+
+def _delete_hint_later(message, seconds: int = 20) -> None:
+    async def _later():
+        await asyncio.sleep(seconds)
+        try:
+            await message.delete()
+        except BaseException:
+            pass
+
+    task = asyncio.create_task(_later())
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+
+
 async def _find_song(message: Message):
     """Find the song for /play without the slow YouTube search.
 
@@ -128,6 +156,14 @@ async def _find_song(message: Message):
     audio files and Spotify links keep the old handling in core/funcs.py.
     """
     reply = message.reply_to_message
+    if reply and (reply.video_note or reply.animation):
+        # search() in core/funcs.py only takes audio, video and document files.
+        file = await reply.download()
+        try:
+            link = reply.link or ""
+        except Exception:
+            link = ""
+        return Song({"title": "Video", "source": link, "remote": file}, message)
     if reply and not reply.text and reply.media:
         return await search(message)
     query = (reply.text if reply else extract_args(message.text)) or ""
@@ -149,17 +185,22 @@ async def _play_flow(message: Message, lang, busy):
         if not check:
             k = await message.reply_text(lang["notAllowed"])
             return await delete_messages([message, k])
-    if message.command[0].lower() in ("vp", "vplay"):
-        set_group(chat_id, stream_mode="video")
-        group = get_group(chat_id)
+    wants_video = message.command[0].lower() in ("vp", "vplay")
     song = await _find_song(message)
     if song is None:
         k = await message.reply_text(lang["notFound"])
         return await delete_messages([message, k])
+    # /vplay shows video only when it replies to a video message. Any other
+    # source plays as audio, and the chat is told so.
+    song.video = wants_video and _has_video(message.reply_to_message)
+    if wants_video and not song.video:
+        _delete_hint_later(await message.reply_text(NOTICES["video_needs_reply"]))
     if not group["is_playing"]:
         # The voice chat is joined while the song downloads (see start_stream).
         set_group(chat_id, is_playing=True, now_playing=song)
         await start_stream(song, lang, busy)
+        if AUTOPLAY and get_group(chat_id)["is_playing"]:
+            start_prefetch(chat_id, song)
         await delete_messages([message])
     else:
         ok, status = await song.parse()
@@ -600,20 +641,25 @@ async def _play_next(chat_id: int, lang, skipped: bool = False) -> None:
         return
     queue = get_queue(chat_id)
     if len(queue) > 0:
+        cancel_prefetch(chat_id)
         next_song = await queue.get()
         set_group(chat_id, now_playing=next_song)
         await start_stream(next_song, lang)
+        if AUTOPLAY and len(queue) == 0 and get_group(chat_id)["is_playing"]:
+            start_prefetch(chat_id, next_song)
         return
     last = group.get("now_playing")
     next_song = None
     if AUTOPLAY and isinstance(last, Song):
         try:
-            next_song = await Song.related(last)
-        except BaseException:
+            next_song = await next_autoplay(chat_id, last)
+        except Exception:
             next_song = None
     if next_song is not None:
         set_group(chat_id, now_playing=next_song)
         await start_stream(next_song, lang)
+        if get_group(chat_id)["is_playing"]:
+            start_prefetch(chat_id, next_song)
         return
     # The song card stays in the chat. Only the close button removes it.
     await set_title(chat_id, "", client=app)
