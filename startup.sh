@@ -1,31 +1,6 @@
 #!/bin/bash
-
-echo ">> FETCHING UPSTREAM..."
-git clone https://github.com/AsmSafone/MusicPlayer /MusicPlayer
-
-echo ">> INSTALLING REQUIREMENTS..."
-cd /MusicPlayer
-pip3 install -U -r requirements.txt
-
+# Runs the code that is in THIS repo. The old version cloned the upstream
+# project here, which threw away every change made in this repo.
+cd "$(dirname "$0")"
 echo ">> STARTING MUSIC PLAYER USERBOT..."
-clear
-echo "
-#     #                        
-##   ## #    #  ####  #  ####  
-# # # # #    # #      # #    # 
-#  #  # #    #  ####  # #      
-#     # #    #      # # #      
-#     # #    # #    # # #    # 
-#     #  ####   ####  #  ####  
-                               
-######                                    
-#     # #        ##   #   # ###### #####  
-#     # #       #  #   # #  #      #    # 
-######  #      #    #   #   #####  #    # 
-#       #      ######   #   #      #####  
-#       #      #    #   #   #      #   #  
-#       ###### #    #   #   ###### #    # 
-                                          
-MUSIC PLAYER USERBOT IS SUCCESSFULLY DEPLOYED!
-"
-python3 main.py
+exec python3 main.py
