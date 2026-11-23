@@ -1,24 +1,19 @@
-FROM python:3.9-slim-buster
+FROM python:3.11-slim-bookworm
 
-# Updating Packages
-RUN apt update && apt upgrade -y
-RUN apt install git curl python3-pip ffmpeg -y
+# ffmpeg is needed to play audio in voice chats. gcc is only a fallback in case
+# a package has no ready-made wheel.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git curl ffmpeg gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copying Requirements
-COPY requirements.txt /requirements.txt
-
-# Installing Requirements
-RUN cd /
-RUN pip3 install --upgrade pip
-RUN pip3 install -U -r requirements.txt
-
-# Setting up working directory
-RUN mkdir /MusicPlayer
 WORKDIR /MusicPlayer
 
-# Preparing for the Startup
-COPY startup.sh /startup.sh
-RUN chmod +x /startup.sh
+# Requirements first, so Docker can reuse this layer when only the code changes
+COPY requirements.txt .
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Running Music Player Bot
-CMD ["/bin/bash", "/startup.sh"]
+# Your own code (this repo), not the upstream one
+COPY . .
+
+CMD ["python3", "main.py"]
