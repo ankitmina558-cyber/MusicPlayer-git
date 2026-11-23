@@ -34,6 +34,7 @@ DOWNLOAD_MAX_AGE = 3 * 60 * 60  # seconds, older song folders are deleted
 AUDIO_FORMAT = "bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best"
 DEFAULT_THUMB = "https://telegra.ph/file/820cac7cb7b1a025542e2.jpg"
 FETCH_TIMEOUT = 60  # seconds for one search + download
+FIRST_TRY_TIMEOUT = 25  # seconds for the quick try on the top SoundCloud result
 # YouTube is blocked on FadeHost. Set TRY_YOUTUBE=true only if your host can reach it.
 TRY_YOUTUBE = os.environ.get("TRY_YOUTUBE", "false").lower() == "true"
 
@@ -170,7 +171,11 @@ class Song:
         ok = False
         if is_search_text:
             # Plain song name: YouTube is blocked on this host, so search SoundCloud.
-            ok = await self._fetch_song(f"scsearch3:{self._clean_query(source)}")
+            # The top result is tried alone first (quickest); the top 3 only if it fails.
+            query = self._clean_query(source)
+            ok = await self._fetch_song(f"scsearch1:{query}", timeout=FIRST_TRY_TIMEOUT)
+            if not ok:
+                ok = await self._fetch_song(f"scsearch3:{query}")
         else:
             # By default a YouTube link goes straight to SoundCloud by its title,
             # because YouTube is blocked on this host and trying it costs seconds.
@@ -196,14 +201,18 @@ class Song:
         return (False, "MAX_RETRY_LIMIT_REACHED")
 
     async def _fetch_song(
-        self, target: str, same_title: Optional[str] = None, fallback: Optional[str] = None
+        self,
+        target: str,
+        same_title: Optional[str] = None,
+        fallback: Optional[str] = None,
+        timeout: float = FETCH_TIMEOUT,
     ) -> bool:
         _cleanup_downloads()
         folder = os.path.join(DOWNLOAD_DIR, str(time.time_ns()))
         try:
             path, meta = await asyncio.wait_for(
                 asyncio.to_thread(_fetch, target, folder, same_title),
-                timeout=FETCH_TIMEOUT,
+                timeout=timeout,
             )
         except Exception as e:
             print(f"[fetch] failed for {target!r}: {type(e).__name__}: {e}")
