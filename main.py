@@ -788,5 +788,36 @@ async def closed_vc(_, update: Update):
         clear_queue(chat_id)
 
 
+def _keep_port_open() -> None:
+    """Render Web Services need an open port. This tiny server only answers "ok"
+    so Render sees the service as alive. It does nothing else."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Health(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    port = os.environ.get("PORT")
+    if not port:
+        return
+    try:
+        server = HTTPServer(("0.0.0.0", int(port)), Health)
+    except Exception as e:
+        print(f"[web] could not open port {port}: {type(e).__name__}: {e}")
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"[web] health port {port} is open")
+
+
+_keep_port_open()
 client.start()
 pytgcalls.run()
