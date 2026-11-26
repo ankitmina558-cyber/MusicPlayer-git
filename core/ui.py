@@ -26,7 +26,7 @@ import aiohttp
 from config import config
 
 # Change these to your own details.
-OWNER_USERNAME = "ankit_x_x_1"
+OWNER_USERNAME = "yutabothub"
 UPDATES_URL = "https://t.me/X_Ankitsopurts"
 SUPPORT_URL = "https://t.me/X_Ankitsopurts"
 # Optional: a picture URL for the /start card. Empty means text only.
